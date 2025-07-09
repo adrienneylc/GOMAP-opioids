@@ -1,0 +1,1863 @@
+---
+title: "Opioid use from 2001 to 2019_latest_v3"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    fig_width: 7
+    fig_height: 6
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+  pdf_document: default
+---
+
+```{css toc-content, echo = FALSE}
+#TOC {
+  left: 20px;
+  margin: 20px 0px 25px 0px;
+}
+
+div.main-container {
+    margin-left: 20px;
+}
+```
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 100)
+```
+# Analysis Plan  
+1. Global, regional, and national rates and time trends of prevalent use, incident use, non-incident use  
+2. Sex differences in prevalent use
+3. Age differences in prevalent use
+4. *Norway age numbers rerun
+
+# Load packages  
+Packages used:  
+1. data manipulation: dplyr, tidyr, stringr, stringi, data.table, Hmisc, haven  
+2. data visualisation: ggplot2, grid, forestplot, directlabels, RColorBrewer  
+3. statistical analyses: epitools, ratesci, metafor, meta, splines, Rcan, insight ()  
+
+# Read RDS  
+Path of RDS for analyses: D:/R/GOMAP/GOMAP POA/cleaned  
+```{r message=FALSE, warning=FALSE}
+library(readxl)
+sex<-read_excel("D:/R/GOMAP/GOMAP POA/self_check_sex_2.xlsx") 
+age<-read_excel("D:/R/GOMAP/GOMAP POA/self_check_age_2.xlsx") 
+```
+
+# National prev (all users), inci (new users), recr (consecutive users)    
+## Calculate national rates: Both sexes  
+```{r message=FALSE, warning=FALSE}
+data.all<-sex[-c(3)]
+data.all[is.na(data.all)] <- 0
+data.all<-aggregate(. ~ Country+Year+Age, data=data.all, FUN=sum)
+data.all[(data.all==0)] <- NA
+data.all$`Prevalent`<-as.numeric(data.all$`Prevalent`)
+data.all$`Incident`<-as.numeric(data.all$`Incident`)
+data.all$`Non-incident`<-(data.all$`Prevalent`-data.all$`Incident`)
+data.all$prev<-data.all$`Prevalent`/data.all$Population*100
+data.all$inci<-data.all$`Incident`/data.all$Population*100
+data.all$recr<-data.all$`Non-incident`/data.all$Population*100
+write.csv(data.all,"D:/R/GOMAP/GOMAP POA/self_check/all.csv")
+```
+
+## Estimate confidence interval of Poisson rates using epitools package    
+```{r message=FALSE, warning=FALSE}
+library(epitools)
+data.all.2<-data.all
+all.prev<-pois.approx(data.all.2$`Prevalent`, pt = data.all.2$Population/100, conf.level = 0.95)
+data.all.2$prevCIlower<-all.prev$lower
+data.all.2$prevCIupper<-all.prev$upper
+
+all.inci<-pois.approx(data.all.2$`Incident`, pt = data.all.2$Population/100, conf.level = 0.95)
+data.all.2$inciCIlower<-all.inci$lower
+data.all.2$inciCIupper<-all.inci$upper
+
+all.recr<-pois.approx(data.all.2$`Non-incident`, pt = data.all.2$Population/100, conf.level = 0.95)
+data.all.2$recrCIlower<-all.recr$lower
+data.all.2$recrCIupper<-all.recr$upper
+```
+
+## Calculate absolute and relative change per year  
+Path of Appendix 5 information: D:/R/GOMAP/GOMAP POA/Updated_analysis/Tables/Appendix1_national rates.csv
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(DT)
+data.all.3<-data.all.2
+
+data.all.4<-data.all.3 %>%
+  group_by(Country) %>%
+  arrange(Year, .by_group = TRUE)  %>%
+  mutate(PrevAbsDiff = prev - lag(prev, default = first(prev)))
+data.all.4<-data.all.4 %>%
+  group_by(Country) %>%
+  arrange(Year, .by_group = TRUE) %>%
+  mutate(PrevRelDiff = (prev - lag(prev, default = first(prev)))/lag(prev, default = first(prev))*100)
+data.all.4<-data.all.4 %>%
+  group_by(Country) %>%
+  arrange(Year, .by_group = TRUE) %>%
+  mutate(InciAbsDiff = inci - lag(inci, default = first(inci)))
+data.all.4<-data.all.4 %>%
+  group_by(Country) %>%
+  arrange(Year, .by_group = TRUE) %>%
+  mutate(InciRelDiff = (inci - lag(inci, default = first(inci)))/lag(inci, default = first(inci))*100)
+data.all.4<-data.all.4 %>%
+  group_by(Country) %>%
+  arrange(Year, .by_group = TRUE) %>%
+  mutate(RecrAbsDiff = recr - lag(recr, default = first(recr)))
+data.all.4<-data.all.4 %>%
+  group_by(Country) %>%
+  arrange(Year, .by_group = TRUE) %>%
+  mutate(RecrRelDiff = (recr - lag(recr, default = first(recr)))/lag(recr, default = first(recr))*100)
+data.all.4$Year<-as.numeric(data.all.4$Year)
+
+data.all.4$Country[data.all.4$Country == "Korea"] <- "South Korea"
+
+data.all.4$Region<-"."
+
+data.all.4$Region[data.all.4$Country == "Australia"] <- "Oceania"
+data.all.4$Region[data.all.4$Country == "New Zealand"] <- "Oceania"
+
+data.all.4$Region[data.all.4$Country == "Denmark"] <- "Northern Europe"
+data.all.4$Region[data.all.4$Country == "Finland"] <- "Northern Europe"
+data.all.4$Region[data.all.4$Country == "Iceland"] <- "Northern Europe"
+data.all.4$Region[data.all.4$Country == "Norway"] <- "Northern Europe"
+data.all.4$Region[data.all.4$Country == "Sweden"] <- "Northern Europe"
+
+data.all.4$Region[data.all.4$Country == "US Medicaid"] <- "North America"
+data.all.4$Region[data.all.4$Country == "US MarketScan"] <- "North America"
+data.all.4$Region[data.all.4$Country == "Canada"] <- "North America"
+
+data.all.4$Region[data.all.4$Country == "France"] <- "Western Europe"
+data.all.4$Region[data.all.4$Country == "Germany"] <- "Western Europe"
+data.all.4$Region[data.all.4$Country == "United Kingdom"] <- "Western Europe"
+data.all.4$Region[data.all.4$Country == "Netherlands"] <- "Western Europe"
+
+data.all.4$Region[data.all.4$Country == "Italy"] <- "Southern Europe"
+data.all.4$Region[data.all.4$Country == "Spain"] <- "Southern Europe"
+
+data.all.4$Region[data.all.4$Country == "Hong Kong"] <- "East Asia"
+data.all.4$Region[data.all.4$Country == "Japan"] <- "East Asia"
+data.all.4$Region[data.all.4$Country == "South Korea"] <- "East Asia"
+data.all.4$Region[data.all.4$Country == "Taiwan"] <- "East Asia"
+
+data.all.4$Country<-factor(data.all.4$Country, levels=c(
+                           "Hong Kong", "Japan","South Korea","Taiwan",
+                           "Australia","New Zealand",
+                           "Canada","US Medicaid","US MarketScan",
+                           "Denmark", "Finland","Iceland","Norway","Sweden",
+                           "France","Germany", "Netherlands", "United Kingdom",
+                           "Italy","Spain"))
+
+
+data.all.4$Region<-factor(data.all.4$Region, levels=c("East Asia","Oceania",
+                                                      "North America",
+                                                      "Northern Europe",
+                                                      "Western Europe",
+                                                      "Southern Europe"
+                                                      ))
+
+datatable(data.all.4, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '200px', targets = c(1, 3)))
+))
+write.csv(data.all.4, "D:/R/GOMAP/GOMAP POA/self_check/Appendix1_national rates.csv")
+```
+# Time trends of opioid use prevalence  
+
+## Plot prevalent users 
+```{r fig.height=9, fig.width=12,message=FALSE, warning=FALSE}
+library(directlabels)
+library(ggplot2)
+
+col<-c("#ff0000" ,"#93C572","#0000ff", "#ff8c00",
+       "#8b0000","#00BCD4", 
+       "#F48FB1", "#2e8b57","#00fa9a",
+        "#FFDB58", "#5D3FD3","#ffa07a",  "#2f4f4f",
+     "#b03060","#000080",   "#87cefa", "#ff00ff","#ff1493",
+     "#ba55d3",  "#1e90ff")
+
+
+a<-ggplot(data.all.4, aes(x=Year, y=prev, group=Country)) +
+   geom_line(aes(color=Country), size=0.8)+
+  geom_point(aes(color=Country))+
+  theme_bw()+ 
+  # geom_ribbon(data=data.all.4,
+  #             aes(ymin = prevCIlower, ymax = prevCIupper), alpha = 0.5)+
+  theme(legend.position="top", 
+        legend.justification='left',
+        legend.key = element_blank(),
+        legend.text=element_text(size=10),
+        legend.spacing.y=unit(c(0.1),"cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(angle=90, vjust=0.5),
+        axis.line = element_line(colour = "black"))+ 
+  labs(y="Number of opioid users per 100 population", colour="Country")+
+  scale_x_continuous(breaks=seq(2001,2019,1), expand = c(0, 0), limits = c(2000,2025))+ 
+  scale_y_continuous(breaks=seq(0,24,1), expand = c(0, 0),limits = c(0,25))+ 
+  scale_color_manual(values = col)+
+  facet_wrap(~Region, nrow = 2)+
+  guides(colour=guide_legend(nrow=2,byrow=TRUE))+
+  ggtitle("Opioid Analgesic All users 2001 - 2019, Both sexes")+    
+  geom_dl(aes(label = Country, col=Country), 
+          method=list(cex = 0.8,dl.trans(x = x),
+                        "last.bumpup", 
+                        hjust = -0.3, vjust = 0.5))
+
+a
+ggsave(filename="Figure1_country_trend_all.png", plot=a, height =9, width=12,device="png", 
+       path="D:/R/GOMAP/GOMAP POA/self_check",
+       dpi=500)
+
+a<-ggplot(data.all.4, aes(x=Year, y=prev, group=Country)) +
+   geom_line(aes(color=Country), size=0.8)+
+  geom_point(aes(color=Country))+
+  theme_classic()+ 
+  # geom_ribbon(data=data.all.4,
+  #             aes(ymin = prevCIlower, ymax = prevCIupper), alpha = 0.5)+
+  theme(legend.position="top", 
+        legend.justification='left',
+        legend.key = element_blank(),
+        legend.key.size = unit(0.3, 'cm'),
+        legend.text=element_text(size=9),
+        legend.spacing.y=unit(c(0.1),"cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(angle=90, vjust=0.5),
+        axis.line = element_line(colour = "black"))+ 
+  labs(y="Number of opioid users per 100 population", colour="Country")+
+  scale_x_continuous(breaks=seq(2001,2019,1), expand = c(0, 0), limits = c(2000,2022))+ 
+  scale_y_continuous(breaks=seq(0,24,1), expand = c(0, 0),limits = c(0,25))+ 
+  scale_color_manual(values = col)+
+  guides(colour=guide_legend(nrow=2,byrow=TRUE))+
+  ggtitle("Opioid Analgesic All users 2001 - 2019, Both sexes")+    
+  geom_dl(aes(label = Country, col=Country), 
+          method=list(cex = 0.7,dl.trans(x = x),
+                        "last.bumpup", 
+                        hjust = -0.2, vjust = 0.2))
+
+a
+ggsave(filename="Figure1b_country_trend_all.png", plot=a, height =7, width=10,device="png", 
+       path="D:/R/GOMAP/GOMAP POA/self_check",
+       dpi=500)
+```
+
+
+ 
+### Annual relative change of opioid use prevalence (total population)  
+Relative rate reduction confidence interval 
+package("epitools")::epitab, risk ratio is used in the updated analysis  
+*the results have been checked against CI calculator correspond to relative risk reduction  
+Herbert R. Confidence Interval Calculator (2013). https://pedro.org.au/english/resources/confidence-interval-calculator/. Accessed on [date].  
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE, results='hide'}
+library(epitools)
+library(dplyr)
+try<-data.all.4
+try$unexposed<-try$Population-try$`Prevalent`
+try <- try[,c(24,4)]
+
+for(i in 1:c(nrow(try)-1)){
+  print(i)
+  j <- i+1
+  temp_try <- try[c(i,j),]
+  temp_res <- epitab(as.matrix(temp_try),method="riskratio")$tab[2,5:7]
+  if(i==1){
+    out_res <- temp_res
+  }else{
+    out_res <- rbind(out_res,temp_res)
+  }
+}
+
+out_res<-as.data.frame(out_res)
+prevRR<-out_res
+tmp<-c(0,0,0)
+prevRR<-rbind(tmp,prevRR)
+prevRR$RR<-(prevRR$riskratio-1)*100
+prevRR$RRLCI<-(prevRR$lower-1)*100
+prevRR$RRUCI<-(prevRR$upper-1)*100
+
+prevRR_tmp<- data.all.4[c(1,2,4,5)]
+prevRR<-cbind(prevRR_tmp,prevRR[4:6])
+
+prevRR$riskratio<-round(prevRR$RR,4)
+prevRR$RRLCL<-round(prevRR$RRLCI,4)
+prevRR$RRUCL<-round(prevRR$RRUCI,4)
+prevRR<-prevRR[c(1,2,8:10)]
+```
+
+```{r message=FALSE, warning=FALSE}
+library(DT)
+library(data.table)
+datatable(prevRR, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '100px', targets = c(1, 3)))
+))
+```
+
+### Relative annual change of all opioid incident use  (all sex, age)
+```{r message=FALSE, warning=FALSE, paged.print=FALSE, results='hide'}
+library(epitools)
+library(dplyr)
+
+try<-data.all.4
+try$unexposed<-try$Population-try$`Incident`
+try <- try[,c(24,5)]
+try[is.na(try)]<-0
+
+for(i in 1:c(nrow(try)-1)){
+  print(i)
+  j <- i+1
+  temp_try <- try[c(i,j),]
+  temp_res <- epitab(as.matrix(temp_try),method="riskratio")$tab[2,5:7]
+  if(i==1){
+    out_res <- temp_res
+  }else{
+    out_res <- rbind(out_res,temp_res)
+  }
+}
+
+out_res<-as.data.frame(out_res)
+inciRR<-out_res
+tmp<-c(0,0,0)
+inciRR<-rbind(tmp,inciRR)
+inciRR$RR<-(inciRR$riskratio-1)*100
+inciRR$RRLCI<-(inciRR$lower-1)*100
+inciRR$RRUCI<-(inciRR$upper-1)*100
+
+inciRR_tmp<- data.all.4[c(1,2,5,6)]
+inciRR<-cbind(inciRR_tmp,inciRR[4:6])
+
+inciRR$riskratio<-round(inciRR$RR,4)
+inciRR$RRLCL<-round(inciRR$RRLCI,4)
+inciRR$RRUCL<-round(inciRR$RRUCI,4)
+inciRR<-inciRR[c(1,2,8:10)]
+
+```
+
+```{r message=FALSE, warning=FALSE}
+library(DT)
+library(data.table)
+datatable(inciRR, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '100px', targets = c(1, 3)))
+))
+```
+
+### Relative annual change of all opioid non-incident use  (all sex, age)
+```{r message=FALSE, warning=FALSE, paged.print=FALSE, results='hide'}
+library(epitools)
+library(dplyr)
+
+try<-data.all.4
+try$unexposed<-try$Population-try$`Non-incident`
+try <- try[,c(24,7)]
+try[is.na(try)]<-0
+
+for(i in 1:c(nrow(try)-1)){
+  print(i)
+  j <- i+1
+  temp_try <- try[c(i,j),]
+  temp_res <- epitab(as.matrix(temp_try),method="riskratio")$tab[2,5:7]
+  if(i==1){
+    out_res <- temp_res
+  }else{
+    out_res <- rbind(out_res,temp_res)
+  }
+}
+
+out_res<-as.data.frame(out_res)
+recrRR<-out_res
+tmp<-c(0,0,0)
+recrRR<-rbind(tmp,recrRR)
+recrRR$RR<-(recrRR$riskratio-1)*100
+recrRR$RRLCI<-(recrRR$lower-1)*100
+recrRR$RRUCI<-(recrRR$upper-1)*100
+
+recrRR_tmp<- data.all.4[c(1,2,7,6)]
+recrRR<-cbind(recrRR_tmp,recrRR[4:6])
+
+recrRR$riskratio<-round(recrRR$RR,4)
+recrRR$RRLCL<-round(recrRR$RRLCI,4)
+recrRR$RRUCL<-round(recrRR$RRUCI,4)
+
+recrRR<-recrRR[c(1,2,8:10)]
+```
+
+```{r message=FALSE, warning=FALSE}
+library(DT)
+library(data.table)
+datatable(recrRR, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '100px', targets = c(1, 3)))
+))
+```
+
+## Trend test for prev  
+Path of results: D:/R/GOMAP/GOMAP POA/self_check/Table_2_trend_test.csv  
+To be replicated on SAS with multinational estimates  
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(plyr)
+library(tibble)
+
+models <- dlply(data.all.4, "Country", function(df) 
+  lm(prev ~ Year, data = df))
+
+coef<-sapply(models, function(df) summary(df)$coefficients[2])
+lm.results<-data.frame(coef)
+
+ad_extract_ci <- function(x){
+  temp_lw <- confint.lm(x)[2,1]
+  temp_up <- confint.lm(x)[2,2]
+  return(c(temp_lw,temp_up))
+}
+
+lower<-unlist(lapply(lapply(models,ad_extract_ci),"[",1))
+lm.results<-cbind(lm.results, lower)
+upper<-unlist(lapply(lapply(models,ad_extract_ci),"[",2))
+lm.results<-cbind(lm.results, upper)
+pvalue<-sapply(models, function(df) summary(df)$coefficients[8])
+lm.results<-cbind(lm.results, pvalue)
+lm.results<-rownames_to_column(lm.results)
+colnames(lm.results)[which(names(lm.results) == "rowname")] <- "Country"
+datatable(lm.results, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '200px', targets = c(1, 3)))
+))
+
+write.csv(lm.results, "D:/R/GOMAP/GOMAP POA/self_check/Table_2_trend_test.csv")
+```
+
+## Trend test for inci  
+Path of results: D:/R/GOMAP/GOMAP POA/Updated_analysis/Tables/Table_2_trend_test_inci.csv
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(plyr)
+library(tibble)
+# Break up d by state, then fit the specified model to each piece and
+# return a list
+models_inci <- dlply(data.all.4, "Country", function(df) 
+  lm(inci ~ Year, data = df))
+
+coef<-sapply(models_inci, function(df) summary(df)$coefficients[2])
+lm.results<-data.frame(coef)
+
+ad_extract_ci <- function(x){
+  temp_lw <- confint.lm(x)[2,1]
+  temp_up <- confint.lm(x)[2,2]
+  return(c(temp_lw,temp_up))
+}
+
+lower<-unlist(lapply(lapply(models_inci,ad_extract_ci),"[",1))
+lm.results<-cbind(lm.results, lower)
+upper<-unlist(lapply(lapply(models_inci,ad_extract_ci),"[",2))
+lm.results<-cbind(lm.results, upper)
+pvalue<-sapply(models_inci, function(df) summary(df)$coefficients[8])
+lm.results<-cbind(lm.results, pvalue)
+lm.results<-rownames_to_column(lm.results)
+colnames(lm.results)[which(names(lm.results) == "rowname")] <- "Country"
+datatable(lm.results, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '200px', targets = c(1, 3)))
+))
+
+write.csv(lm.results, "D:/R/GOMAP/GOMAP POA/self_check/Table_2_trend_test_inci.csv")
+```
+## Trend test for non-inci  
+Path of results: D:/R/GOMAP/GOMAP POA/Updated_analysis/Tables/Table_2_trend_test_recr.csv"
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(plyr)
+library(tibble)
+# Break up d by state, then fit the specified model to each piece and
+# return a list
+models_recr <- dlply(data.all.4, "Country", function(df) 
+  lm(recr ~ Year, data = df))
+
+coef<-sapply(models_recr, function(df) summary(df)$coefficients[2])
+lm.results<-data.frame(coef)
+
+ad_extract_ci <- function(x){
+  temp_lw <- confint.lm(x)[2,1]
+  temp_up <- confint.lm(x)[2,2]
+  return(c(temp_lw,temp_up))
+}
+
+lower<-unlist(lapply(lapply(models_recr,ad_extract_ci),"[",1))
+lm.results<-cbind(lm.results, lower)
+upper<-unlist(lapply(lapply(models_recr,ad_extract_ci),"[",2))
+lm.results<-cbind(lm.results, upper)
+pvalue<-sapply(models_recr, function(df) summary(df)$coefficients[8])
+lm.results<-cbind(lm.results, pvalue)
+lm.results<-rownames_to_column(lm.results)
+colnames(lm.results)[which(names(lm.results) == "rowname")] <- "Country"
+datatable(lm.results, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '200px', targets = c(1, 3)))
+))
+
+write.csv(lm.results, "D:/R/GOMAP/GOMAP POA/self_check/Table_2_trend_test_recr.csv")
+```
+
+
+## Incident vs Non-incident users  
+### Plot
+```{r fig.height=14, fig.width=9, warning=FALSE}
+library(directlabels)
+library(ggplot2)
+library(tidyr)
+
+data.all.5<-data.all.4[c(1,2,23,8,9,10)]
+data.all.5<-data.all.5 %>% 
+pivot_longer(c(4:6),
+              names_to = "Parameter", values_to = "Rate")
+
+data.all.5$Parameter[data.all.5$Parameter == "inci"] <- "Incident use"
+data.all.5$Parameter[data.all.5$Parameter == "prev"] <- "All use"
+data.all.5$Parameter[data.all.5$Parameter == "recr"] <- "Non-incident use"
+
+
+incivsnoninci<-subset(data.all.5, Parameter!="All use")
+incivsnonincib<-subset(incivsnoninci, Region=="Northern Europe"|
+                         Region=="Western Europe"|
+                         Region=="Southern Europe")
+incivsnonincia<-subset(incivsnoninci, Region=="East Asia"|
+                         Region=="Oceania"|
+                         Region=="North America")
+
+c1<-c("#ff0000" ,"#93C572","#0000ff", "#ff8c00",
+       "#8b0000","#00BCD4", 
+       "#F48FB1", "#2e8b57","#00fa9a")
+a<-ggplot(incivsnonincia, aes(x=Year, y=Rate, group=Country)) +
+   geom_line(aes(color=Country), size=0.8)+
+  geom_point(aes(color=Country))+
+  theme_bw()+ 
+  # geom_ribbon(data=data.all.4,
+  #             aes(ymin = prevCIlower, ymax = prevCIupper), alpha = 0.5)+
+  theme(legend.position="none",
+        # legend.spacing.y=unit(c(0.2),"cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(angle=90, vjust=0.5),
+        axis.line = element_line(colour = "black"))+ 
+  labs(y="Number of opioid users per 100 population", colour="Country")+
+  scale_x_continuous(breaks=seq(2001,2019,1), expand = c(0, 0), limits = c(2000,2030))+ 
+  scale_y_continuous(breaks=seq(0,16,1), expand = c(0, 0),limits = c(0,17))+ 
+  scale_color_manual(values = c1)+ 
+  facet_grid(vars(Region), vars(Parameter))+
+  # guides(colour=guide_legend(nrow=2,byrow=TRUE))+
+  ggtitle("Opioid Analgesic users 2001 - 2019, Both sexes")+    
+  geom_dl(aes(label = Country, col=Country), 
+          method=list(cex = 0.8,dl.trans(x = x),
+                        "last.bumpup", 
+                        hjust = 0.3, vjust = -0.2))
+a
+
+ggsave(filename="Figure_2_Inci_vs_Nonincia.png", plot=a, height =10, width=7,device="png", 
+       path="D:/R/GOMAP/GOMAP POA/self_check",
+       dpi=500)
+
+c2<-c(  "#FFDB58", "#5D3FD3","#ffa07a",  "#2f4f4f",
+     "#b03060","#000080",   "#87cefa", "#ff00ff","#ff1493",
+     "#ba55d3",  "#1e90ff")
+a<-ggplot(incivsnonincib, aes(x=Year, y=Rate, group=Country)) +
+   geom_line(aes(color=Country), size=0.8)+
+  geom_point(aes(color=Country))+
+  theme_bw()+ 
+  # geom_ribbon(data=data.all.4,
+  #             aes(ymin = prevCIlower, ymax = prevCIupper), alpha = 0.5)+
+  theme(legend.position="none",
+        # legend.spacing.y=unit(c(0.2),"cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(angle=90, vjust=0.5),
+        axis.line = element_line(colour = "black"))+ 
+  labs(y="Number of opioid users per 100 population", colour="Country")+
+  scale_x_continuous(breaks=seq(2001,2019,1), expand = c(0, 0), limits = c(2000,2030))+ 
+  scale_y_continuous(breaks=seq(0,16,1), expand = c(0, 0),limits = c(0,17))+ 
+  scale_color_manual(values = c2)+ 
+  facet_grid(vars(Region), vars(Parameter))+
+  # guides(colour=guide_legend(nrow=2,byrow=TRUE))+
+  ggtitle("Opioid Analgesic users 2001 - 2019, Both sexes")+    
+  geom_dl(aes(label = Country, col=Country), 
+          method=list(cex = 0.8,dl.trans(x = x),
+                        "last.bumpup", 
+                        hjust = 0.3, vjust = -0.2))
+
+a
+
+ggsave(filename="Figure_2_Inci_vs_Nonincib.png", plot=a, height =10, width=7,device="png", 
+       path="D:/R/GOMAP/GOMAP POA/self_check",
+       dpi=500)
+```
+### Incident vs non-incident: Ratios with CI
+```{r message=FALSE, warning=FALSE, paged.print=FALSE, results='hide'}
+library(dplyr)
+library(DT)
+library(epitools)
+library(dplyr)
+
+inci_recr<-data.all.4
+inci_recr$inci_recr_ratio<-inci_recr$Incident/inci_recr$`Non-incident`
+inci_recr.1<-subset(inci_recr,Country!="Canada")
+
+a<-ggplot(inci_recr, aes(x=Year, y=inci_recr_ratio, group=Country)) +
+   geom_line(aes(color=Country), size=0.8)+
+  geom_point(aes(color=Country))+
+  theme_classic()+ 
+  # geom_ribbon(data=data.all.4,
+  #             aes(ymin = prevCIlower, ymax = prevCIupper), alpha = 0.5)+
+  theme(legend.position="top", 
+        legend.justification='left',
+        legend.key = element_blank(),
+        legend.key.size = unit(0.3, 'cm'),
+        legend.text=element_text(size=9),
+        legend.spacing.y=unit(c(0.1),"cm"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(angle=90, vjust=0.5),
+        axis.line = element_line(colour = "black"))+ 
+  labs(y="incident:non-incident users", colour="Country")+
+  scale_x_continuous(breaks=seq(2001,2019,1), expand = c(0, 0), limits = c(2000,2022))+
+  scale_color_manual(values = col)+
+  guides(colour=guide_legend(nrow=2,byrow=TRUE))+
+  ggtitle("Opioid Analgesic Ratios of incident:non-incident users 2001 - 2019, Both sexes")+    
+  geom_dl(aes(label = Country, col=Country), 
+          method=list(cex = 0.7,dl.trans(x = x),
+                        "last.bumpup", 
+                        hjust = -0.2, vjust = 0.2))
+
+a
+ggsave(filename="FigureS_inciratio.png", plot=a, height =7, width=10,device="png", 
+       path="D:/R/GOMAP/GOMAP POA/self_check",
+       dpi=500)
+
+write.csv(inci_recr, "D:/R/GOMAP/GOMAP POA/self_check/Table_S5_incinoninci.csv")
+
+```
+## Meta analysis: Pooled prevalence 2015 (all sites)  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+library(meta)
+library(forestplot)
+library(ggplot2)
+pooled<-data.all.4[data.all.4$Year==2015,]
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(prev), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$Prevalent,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,20),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalence per 
+100 population"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+
+```
+
+## Meta analysis: Pooled incidence 2015 (all sites)  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+library(meta)
+library(forestplot)
+library(ggplot2)
+pooled<-data.all.4[data.all.4$Year==2015,]
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(inci), 
+  lower = log(inciCIlower), 
+  upper = log(inciCIupper),
+  n.e=pooled$Incident,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,15),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Incidence per 
+100 population"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Incident 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```
+## Meta analysis: Pooled non-incidence 2015 (all sites)  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+library(meta)
+library(forestplot)
+library(ggplot2)
+pooled<-data.all.4[data.all.4$Year==2015,]
+
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(recr), 
+  lower = log(recrCIlower), 
+  upper = log(recrCIupper),
+  n.e=pooled$`Non-incident`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,15),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Non-incident prescribing per 
+100 population"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Non-incident 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```
+
+# Sex specific POA prevalence  
+## Calculate national rates: Male and Females  
+```{r message=FALSE, warning=FALSE}
+library(DT)
+data.MF<-sex
+data.MF$`Prevalent`<-as.numeric(data.MF$`Prevalent`)
+data.MF$`Incident`<-as.numeric(data.MF$`Incident`)
+data.MF[data.MF == 0] <- NaN
+data.MF$`Non-incident`<-data.MF$`Prevalent`-data.MF$`Incident`
+data.MF$prev<-data.MF$`Prevalent`/data.MF$Population*100
+data.MF$inci<-data.MF$`Incident`/data.MF$Population*100
+data.MF$recr<-data.MF$`Non-incident`/data.MF$Population*100
+
+
+```
+
+## Table  
+```{r message=FALSE, warning=FALSE}
+data.MF[data.MF == 0] <- NA
+data.MF$Country[data.MF$Country == "Korea"] <- "South Korea"
+data.MF$Region<-"."
+data.MF$Region[data.MF$Country == "Australia"] <- "Oceania"
+data.MF$Region[data.MF$Country == "New Zealand"] <- "Oceania"
+
+data.MF$Region[data.MF$Country == "Denmark"] <- "Northern Europe"
+data.MF$Region[data.MF$Country == "Finland"] <- "Northern Europe"
+data.MF$Region[data.MF$Country == "Iceland"] <- "Northern Europe"
+data.MF$Region[data.MF$Country == "Norway"] <- "Northern Europe"
+data.MF$Region[data.MF$Country == "Sweden"] <- "Northern Europe"
+
+data.MF$Region[data.MF$Country == "US MarketScan"] <- "North America"
+data.MF$Region[data.MF$Country == "US Medicaid"] <- "North America"
+data.MF$Region[data.MF$Country == "Canada"] <- "North America"
+
+data.MF$Region[data.MF$Country == "France"] <- "Western Europe"
+data.MF$Region[data.MF$Country == "Germany"] <- "Western Europe"
+data.MF$Region[data.MF$Country == "United Kingdom"] <- "Western Europe"
+data.MF$Region[data.MF$Country == "Netherlands"] <- "Western Europe"
+
+data.MF$Region[data.MF$Country == "Italy"] <- "Southern Europe"
+data.MF$Region[data.MF$Country == "Spain"] <- "Southern Europe"
+
+data.MF$Region[data.MF$Country == "Hong Kong"] <- "East Asia"
+data.MF$Region[data.MF$Country == "Japan"] <- "East Asia"
+data.MF$Region[data.MF$Country == "South Korea"] <- "East Asia"
+data.MF$Region[data.MF$Country == "Taiwan"] <- "East Asia"
+
+data.MF$Country<-factor(data.MF$Country, levels=c(
+  "Hong Kong", "Japan","South Korea","Taiwan",
+  "Australia","New Zealand",
+  "Canada","US Medicaid","US MarketScan",
+                           "Denmark", "Finland","Iceland","Norway","Sweden",
+                           "France","Germany", "Netherlands", "United Kingdom",
+                           "Italy","Spain"))
+
+data.MF$Region<-factor(data.MF$Region, levels=c("East Asia","Oceania",
+                                              "North America",
+                                              "Northern Europe",
+                                              "Western Europe",
+                                              "Southern Europe"))
+```
+
+## Confidence interval estimate for sex specific estimates  
+```{r message=FALSE, warning=FALSE}
+library(epitools)
+library(DT)
+data.MF.3<-data.MF
+mf.prev<-pois.approx(data.MF.3$`Prevalent`, pt = data.MF.3$Population/100, conf.level = 0.95)
+data.MF.3$prevCIlower<-mf.prev$lower
+data.MF.3$prevCIupper<-mf.prev$upper
+
+mf.inci<-pois.approx(data.MF.3$`Incident`, pt = data.MF.3$Population/100, conf.level = 0.95)
+data.MF.3$inciCIlower<-mf.inci$lower
+data.MF.3$inciCIupper<-mf.inci$upper
+
+mf.recr<-pois.approx(data.MF.3$`Non-incident`, pt = data.MF.3$Population/100, conf.level = 0.95)
+data.MF.3$recrCIlower<-mf.recr$lower
+data.MF.3$recrCIupper<-mf.recr$upper
+
+datatable(data.MF.3, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '200px', targets = c(1, 3)))
+))
+
+write.csv(data.MF.3,"D:/R/GOMAP/GOMAP POA/self_check/S7_Sex_Use.csv")
+```
+
+The overall female to male ratio of all opioid use in 2015 is `r subset(data.MF,Year==2015)%>%summarise (ratio=prev[Sex=="Female"]/prev[Sex=="Male"])`.  
+
+## Plot sex differences in opioid prevalence  
+```{r message=FALSE, warning=FALSE}
+library(directlabels)
+library(ggplot2)
+data.MF.2<-data.MF
+
+b<-ggplot(data.MF, aes(x=Year, y=prev, group=Country)) +
+  geom_point(aes(color=Country))+
+  geom_line(aes(color=Country), size=0.8)+
+  theme(legend.position="right", 
+        legend.key = element_blank(),
+        legend.text=element_text(size=10),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(angle=90),
+        axis.line = element_line(colour = "black"))+ 
+  labs(y="Number of opioid users per 100 population", colour="Country")+
+  scale_x_continuous(breaks=seq(0,2019,1), expand = c(0, 0), limits = c(2000,2026))+ 
+  scale_y_continuous(breaks=seq(0,30,5), expand = c(0, 0), limits = c(0,30))+ 
+  scale_color_manual(values = col)+
+  ggtitle("Opioid Analgesic Prescribing 2001 - 2019, Males and Females")+
+  facet_wrap(~ Sex, nrow=1)+    
+  geom_dl(aes(label = Country, col=Country), 
+          method=list(cex = 0.8,dl.trans(x = x),
+                        "last.bumpup", 
+                        hjust = -0.1, vjust = -0.1))
+
+b
+ggsave(filename="Figure3b_MF prev.png", plot=b, height =8, width=13,device="png", 
+       path="D:/R/GOMAP/GOMAP POA/self_check",
+       dpi=500)
+
+e<-ggplot(data.MF, aes(x=Year, y=prev, group=Sex)) +
+  geom_point(aes(color=Sex),alpha = 0.5)+
+  geom_line(aes(color=Sex), size=0.8)+
+  theme_bw()+
+  theme(legend.position="right", 
+        legend.key = element_blank(),
+        legend.text=element_text(size=10),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(angle=90, vjust = 0.5),
+        axis.line = element_line(colour = "black"))+ 
+  labs(y="Number of opioid users per 100 population", colour="Sex")+
+  scale_x_continuous(breaks=seq(0,2019,1))+ 
+  scale_color_manual(values = c("#F1D302","#235789"))+
+  ggtitle("Opioid Analgesic Prescribing 2001 - 2019, Males and Females")+
+  facet_wrap(~ Country, nrow=4)
+
+e
+
+ggsave(filename="Figure3a_MF prev_country.png", plot=e, height =7, width=12,device="png", 
+       path="D:/R/GOMAP/GOMAP POA/self_check",
+       dpi=500)
+```
+## Meta analysis: Pooled Prevalence in Females 2015 (all sites)  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+library(meta)
+library(forestplot)
+library(ggplot2)
+pooled<-data.MF.3[data.MF.3$Year==2015 & data.MF.3$Sex=="Female",]
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(prev), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,25),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent prescribing per 
+100 female population"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```
+
+## Meta analysis: Pooled Prevalence in Males 2015 (all sites)  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+library(meta)
+library(forestplot)
+library(ggplot2)
+pooled<-data.MF.3[data.MF.3$Year==2015 & data.MF.3$Sex=="Male",]
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(prev), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,20),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent prescribing per 
+100 male population"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```
+
+## Female to male POA use ratio  
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(DT)
+sex.ratio.prev<-data.MF.3 %>% unique() %>% group_by(Year, Country) %>% 
+  summarise(ratio_prev = prev[Sex=="Female"]/prev[Sex=="Male"])
+
+sex.ratio.inci<-data.MF.3 %>% unique() %>% group_by(Year, Country) %>% 
+  summarise(ratio_inci = inci[Sex=="Female"]/inci[Sex=="Male"])
+
+sex.ratio.recr<-data.MF.3 %>% unique() %>% group_by(Year, Country) %>% 
+  summarise(ratio_recr = recr[Sex=="Female"]/recr[Sex=="Male"])
+
+rowhead<-data.MF.3[c(1,2)] %>% unique()
+
+sex.ratio<-cbind(rowhead,sex.ratio.prev$ratio_prev,
+                 sex.ratio.inci$ratio_inci, 
+                 sex.ratio.recr$ratio_recr)
+
+sex.ratio_print<-subset(sex.ratio, Year==2015)
+# sex.ratio2<-sex.ratio %>% unique() %>% group_by(Country) %>%
+#   summarise(ratio_sex = prev[Sex=="Female"]/prev[Sex=="Male"])
+
+# sex.ratio3<-unique(sex.ratio)
+# sex.ratio3<-sex.ratio3[c(3,13)]
+
+
+library(epitools)
+library(dplyr)
+# try<- sex.ratio[order( sex.ratio$Country),]
+# try$unexposed<-try$Population-try$`Prevalent`
+# try <- try[,c(19,5)]
+#
+# for(i in 1:c(nrow(try)-1)){
+#   print(i)
+#   j <- i+1
+#   temp_try <- try[c(i,j),]
+#   temp_res <- epitab(as.matrix(temp_try),method="riskratio")$tab[2,5:7]
+#   if(i==1){
+#     out_res <- temp_res
+#   }else{
+#     out_res <- rbind(out_res,temp_res)
+#   }
+# }
+#
+# out_res<-as.data.frame(out_res)
+# prevsex<-out_res
+# tmp<-c(0,0,0)
+# prevsex<-rbind(tmp,prevsex)
+# prevsex$ratio_prev<-1/prevsex$riskratio
+# prevsex$ratio_prevUCL<-1/prevsex$lower
+# prevsex$ratio_prevLCL<-1/prevsex$upper
+# prevsex_tmp<- sex.ratio[c(1)]
+# prevsex<-cbind(prevsex_tmp,prevsex[c(4,6,5)])
+# toDelete <- seq(2, nrow(prevsex), 2)
+# prevsex<-prevsex[ toDelete ,]
+# prevsex$prev_ratio<-round(prevsex$ratio_prev,4)
+# prevsex$prev_ratioLCL<-round(prevsex$ratio_prevLCL,4)
+# prevsex$prev_ratioUCL<-round(prevsex$ratio_prevUCL,4)
+# prevsex<-prevsex[c(1,5:7)]
+#
+# ### inci
+# try<- sex.ratio[order(sex.ratio$Country),]
+# try$unexposed<-try$Population-try$`Incident`
+# try <- try[,c(19,6)]
+#
+# for(i in 1:c(nrow(try)-1)){
+#   print(i)
+#   j <- i+1
+#   temp_try <- try[c(i,j),]
+#   temp_res <- epitab(as.matrix(temp_try),method="riskratio")$tab[2,5:7]
+#   if(i==1){
+#     out_res <- temp_res
+#   }else{
+#     out_res <- rbind(out_res,temp_res)
+#   }
+# }
+#
+# out_res<-as.data.frame(out_res)
+# incisex<-out_res
+# tmp<-c(0,0,0)
+# incisex<-rbind(tmp,incisex)
+# incisex$ratio_inci<-1/incisex$riskratio
+# incisex$ratio_inciUCL<-1/incisex$lower
+# incisex$ratio_inciLCL<-1/incisex$upper
+# incisex_tmp<- sex.ratio[c(1)]
+# incisex<-cbind(incisex_tmp,incisex[c(4,6,5)])
+# toDelete <- seq(2, nrow(incisex), 2)
+# incisex<-incisex[ toDelete ,]
+# incisex$inci_ratio<-round(incisex$ratio_inci,4)
+# incisex$inci_ratioLCL<-round(incisex$ratio_inciLCL,4)
+# incisex$inci_ratioUCL<-round(incisex$ratio_inciUCL,4)
+# incisex<-incisex[c(1,5:7)]
+#
+# ### recr
+# try<- sex.ratio[order(sex.ratio$Country),]
+# try$unexposed<-try$Population-try$`Non-incident`
+# try <- try[,c(19,8)]
+#
+# for(i in 1:c(nrow(try)-1)){
+#   print(i)
+#   j <- i+1
+#   temp_try <- try[c(i,j),]
+#   temp_res <- epitab(as.matrix(temp_try),method="riskratio")$tab[2,5:7]
+#   if(i==1){
+#     out_res <- temp_res
+#   }else{
+#     out_res <- rbind(out_res,temp_res)
+#   }
+# }
+#
+# out_res<-as.data.frame(out_res)
+# recrsex<-out_res
+# tmp<-c(0,0,0)
+# recrsex<-rbind(tmp,recrsex)
+# recrsex$ratio_recr<-1/recrsex$riskratio
+# recrsex$ratio_recrUCL<-1/recrsex$lower
+# recrsex$ratio_recrLCL<-1/recrsex$upper
+# recrsex_tmp<- sex.ratio[c(1)]
+# recrsex<-cbind(recrsex_tmp,recrsex[c(4,6,5)])
+# toDelete <- seq(2, nrow(recrsex), 2)
+# recrsex<-recrsex[ toDelete ,]
+# recrsex$recr_ratio<-round(recrsex$ratio_recr,4)
+# recrsex$recr_ratioLCL<-round(recrsex$ratio_recrLCL,4)
+# recrsex$recr_ratioUCL<-round(recrsex$ratio_recrUCL,4)
+# recrsex<-recrsex[c(1,5:7)]
+#
+# rowhead<-recrsex[c(1)]
+# sex.ratio_CI<-cbind(rowhead,prevsex[c(2:4)],
+#                  incisex[c(2:4)],
+#                  recrsex[c(2:4)])
+# sex.ratio_CI<-as.data.frame(sex.ratio_CI)
+# rownames(sex.ratio_CI) <- NULL
+datatable(sex.ratio_print, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '200px', targets = c(1, 3)))
+))
+
+```
+
+# Age-specific prevalence of opioid use  
+
+## Cleaning data
+```{r}
+library(data.table)
+poa.age<-age
+poa.age$Age <- as.numeric(poa.age$Age)
+poa.age<-setDT(poa.age)[Age <6, agegroup := "0-5"]
+poa.age<-poa.age[Age >5 & Age <12, agegroup := "6-11"]
+poa.age<-poa.age[Age >11 & Age <19, agegroup := "12-18"]
+poa.age<-poa.age[Age >18 & Age <31, agegroup := "19-30"]
+poa.age<-poa.age[Age >30 & Age <41, agegroup := "31-40"]
+poa.age<-poa.age[Age >40 & Age <51, agegroup := "41-50"]
+poa.age<-poa.age[Age >50 & Age <66, agegroup := "51-65"]
+poa.age<-poa.age[Age >65, agegroup := ">65"]
+poa.age.2<-poa.age[,-c(4)]
+poa.age.3<-aggregate(.~ Year+Sex+Country+agegroup, data=poa.age.2, FUN=sum)
+```
+
+## Sex-age-specific prevalence  
+```{r}
+library(DT)
+prev.age<-poa.age.3
+prev.age$prev<-prev.age$Prevalent/prev.age$Population*100
+prev.age$agegroup <- factor(prev.age$agegroup, levels = 
+                              c("0-5" ,"6-11" ,  "12-18", "19-30" ,"31-40" ,
+                                "41-50","51-65",">65" ))
+```
+
+
+
+## Confidence interval of male-age-specific all use  
+```{r}
+library(epitools)
+library(DT)
+prev.age$Country[prev.age$Country == "Korea"] <- "South Korea"
+
+prev.age$Region<-"."
+prev.age$Region[prev.age$Country == "Australia"] <- "Oceania"
+prev.age$Region[prev.age$Country == "New Zealand"] <- "Oceania"
+
+prev.age$Region[prev.age$Country == "Denmark"] <- "Northern Europe"
+prev.age$Region[prev.age$Country == "Finland"] <- "Northern Europe"
+prev.age$Region[prev.age$Country == "Iceland"] <- "Northern Europe"
+prev.age$Region[prev.age$Country == "Norway"] <- "Northern Europe"
+prev.age$Region[prev.age$Country == "Sweden"] <- "Northern Europe"
+
+prev.age$Region[prev.age$Country == "US MarketScan"] <- "North America"
+prev.age$Region[prev.age$Country == "US Medicaid"] <- "North America"
+prev.age$Region[prev.age$Country == "Canada"] <- "North America"
+
+prev.age$Region[prev.age$Country == "France"] <- "Western Europe"
+prev.age$Region[prev.age$Country == "Germany"] <- "Western Europe"
+prev.age$Region[prev.age$Country == "United Kingdom"] <- "Western Europe"
+prev.age$Region[prev.age$Country == "Netherlands"] <- "Western Europe"
+
+prev.age$Region[prev.age$Country == "Italy"] <- "Southern Europe"
+prev.age$Region[prev.age$Country == "Spain"] <- "Southern Europe"
+
+prev.age$Region[prev.age$Country == "Hong Kong"] <- "East Asia"
+prev.age$Region[prev.age$Country == "Japan"] <- "East Asia"
+prev.age$Region[prev.age$Country == "South Korea"] <- "East Asia"
+prev.age$Region[prev.age$Country == "Taiwan"] <- "East Asia"
+
+prev.age$Country<-factor(prev.age$Country, levels=c(
+  "Hong Kong", "Japan","South Korea","Taiwan",
+  "Australia","New Zealand",
+  "Canada","US Medicaid","US MarketScan",
+                           "Denmark", "Finland","Iceland","Norway","Sweden",
+                           "France","Germany", "Netherlands", "United Kingdom",
+                           "Italy","Spain"))
+
+prev.age$Region<-factor(prev.age$Region, levels=c("East Asia","Oceania",
+                                              "North America",
+                                              "Northern Europe",
+                                              "Western Europe",
+                                              "Southern Europe"))
+prev.age.M.2<-prev.age
+prev.age.M.3<-pois.approx(prev.age.M.2$Prevalent, pt = prev.age.M.2$Population/100, conf.level = 0.95)
+prev.age.M.2$prevCIlower<-prev.age.M.3$lower
+prev.age.M.2$prevCIupper<-prev.age.M.3$upper
+
+
+datatable(prev.age.M.2, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '200px', targets = c(1, 3)))
+))
+
+```
+
+## Plot Age-Sex all use  
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+
+e<-ggplot(prev.age, aes(x=Year, y=prev, group=agegroup)) +
+  geom_point(aes(color=agegroup))+
+  geom_line(aes(color=agegroup), size=0.8, alpha=0.8)+
+  theme_bw()+
+  theme(legend.position="right", 
+        legend.key = element_blank(),
+        legend.text=element_text(size=10),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(angle=90),
+        axis.line = element_line(colour = "black"))+ 
+  labs(y="Prevalence (per 100 individuals)", colour="Age (years)")+
+  scale_x_continuous(breaks=seq(0,2019,1))+ 
+  scale_colour_brewer(palette = "Dark2")+
+  facet_grid(Region~Country~Sex)
+e
+
+ggsave(filename="S7_Age MF prev.png", plot=e, height =25, width=18,device="png", 
+       path="D:/R/GOMAP/GOMAP POA/self_check",
+       dpi=800)
+write.csv(prev.age,"D:/R/GOMAP/GOMAP POA/self_check/prev.age.mf.csv")
+```
+## Plot Age-Male all use by age facets  
+```{r fig.height=12, fig.width=12, message=FALSE, warning=FALSE}
+library(ggplot2)
+col<-c("#ff0000" ,"#93C572","#0000ff", "#ff8c00",
+       "#8b0000","#00BCD4", 
+       "#F48FB1", "#2e8b57","#00fa9a",
+        "#FFDB58", "#5D3FD3","#ffa07a",  "#2f4f4f",
+     "#b03060","#000080",   "#87cefa", "#ff00ff","#ff1493",
+     "#ba55d3",  "#1e90ff")
+
+e<-ggplot(prev.age, aes(x=Year, y=prev, group=Country)) +
+  geom_point(aes(color=Country))+
+  geom_line(aes(color=Country), size=0.8, alpha=0.8)+
+  theme_bw()+
+  theme(legend.position="top", 
+        legend.key = element_blank(),
+        legend.text=element_text(size=10),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.text.x=element_text(angle=90),
+        axis.line = element_line(colour = "black"))+ 
+  labs(y="Prevalence (per 100 population)")+
+  scale_y_continuous(breaks=seq(0,60,5), expand = c(0, 0), limits = c(0,50))+
+  scale_x_continuous(breaks=seq(0,2019,1), expand = c(0, 0), limits = c(2001,2020))+
+  scale_color_manual(values = col)+
+  facet_grid (Sex~agegroup)
+
+e
+ggsave(filename="FigureS9_Age Sex prev2.png", plot=e, height =10, width=15,device="png", 
+       path="D:/R/GOMAP/GOMAP POA/self_check",
+       dpi=800)
+```
+
+
+
+## Meta analysis: prev.age prevalence 2015 (all sites) in subpopulation  
+### Prepare data  
+
+```{r fig.height=25, fig.width=25, message=FALSE, warning=FALSE}
+library(meta)
+library(forestplot)
+library(epitools)
+pooled_M<-subset(prev.age, Year==2015 )
+pooled_M$subpop[pooled_M$agegroup == "0-5"] <- "paediatric"
+pooled_M$subpop[pooled_M$agegroup == "6-11"] <- "paediatric"
+pooled_M$subpop[pooled_M$agegroup == "12-18"] <- "paediatric"
+pooled_M$subpop[pooled_M$agegroup == "19-30"] <- "adults"
+pooled_M$subpop[pooled_M$agegroup == "31-40"] <- "adults"
+pooled_M$subpop[pooled_M$agegroup == "41-50"] <- "adults"
+pooled_M$subpop[pooled_M$agegroup == "51-65"] <- "adults"
+pooled_M$subpop[pooled_M$agegroup == ">65"] <- "older adults"
+pooled_M<-pooled_M[-c(2,4,7)]
+pooled_M<-aggregate(. ~ Year+Country+subpop+Region, data=pooled_M, FUN=sum)
+pooled_M$Prevalence<-pooled_M$Prevalent/pooled_M$Population*100
+pooled_M_pois<-pois.approx(pooled_M$Prevalent, pt = pooled_M$Population/100, conf.level = 0.95)
+pooled_M$prevCIlower<-pooled_M_pois$lower
+pooled_M$prevCIupper<-pooled_M_pois$upper
+pooled_M_allsub<-pooled_M
+
+```
+
+## Paediatric 2015 pooled opioid use prevalence  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+pooled<-subset(pooled_M_allsub,subpop=="paediatric")
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(Prevalence), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,8),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent opioid prescribing per 
+100 population (Paediatric)"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```  
+
+## Adults 2015 pooled opioid use prevalence  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+pooled<-subset(pooled_M_allsub,subpop=="adults")
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(Prevalence), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,40),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent opioid prescribing per 
+100 population (Adults)"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```
+
+## Older adults 2015 pooled opioid use prevalence  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+pooled<-subset(pooled_M_allsub,subpop=="older adults")
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(Prevalence), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,40),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent opioid prescribing per 
+100 population (Older adults)"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```
+
+## Meta analysis: prev.age prevalence 2015 (all sites) by age and sex in subpopulation  
+### Prepare data  
+
+```{r fig.height=25, fig.width=25, message=FALSE, warning=FALSE}
+library(meta)
+library(forestplot)
+library(epitools)
+pooled_M<-subset(prev.age, Year==2015 & Sex=="Male")
+pooled_M$subpop[pooled_M$agegroup == "0-5"] <- "paediatric"
+pooled_M$subpop[pooled_M$agegroup == "6-11"] <- "paediatric"
+pooled_M$subpop[pooled_M$agegroup == "12-18"] <- "paediatric"
+pooled_M$subpop[pooled_M$agegroup == "19-30"] <- "adults"
+pooled_M$subpop[pooled_M$agegroup == "31-40"] <- "adults"
+pooled_M$subpop[pooled_M$agegroup == "41-50"] <- "adults"
+pooled_M$subpop[pooled_M$agegroup == "51-65"] <- "adults"
+pooled_M$subpop[pooled_M$agegroup == ">65"] <- "older adults"
+pooled_M<-pooled_M[-c(2,4,7)]
+pooled_M<-aggregate(. ~ Year+Country+subpop+Region, data=pooled_M, FUN=sum)
+pooled_M$Prevalence<-pooled_M$Prevalent/pooled_M$Population*100
+pooled_M_pois<-pois.approx(pooled_M$Prevalent, pt = pooled_M$Population/100, conf.level = 0.95)
+pooled_M$prevCIlower<-pooled_M_pois$lower
+pooled_M$prevCIupper<-pooled_M_pois$upper
+pooled_M_allsub<-pooled_M
+
+pooled_F<-subset(prev.age, Year==2015 & Sex=="Female")
+pooled_F$subpop[pooled_F$agegroup == "0-5"] <- "paediatric"
+pooled_F$subpop[pooled_F$agegroup == "6-11"] <- "paediatric"
+pooled_F$subpop[pooled_F$agegroup == "12-18"] <- "paediatric"
+pooled_F$subpop[pooled_F$agegroup == "19-30"] <- "adults"
+pooled_F$subpop[pooled_F$agegroup == "31-40"] <- "adults"
+pooled_F$subpop[pooled_F$agegroup == "41-50"] <- "adults"
+pooled_F$subpop[pooled_F$agegroup == "51-65"] <- "adults"
+pooled_F$subpop[pooled_F$agegroup == ">65"] <- "older adults"
+pooled_F<-pooled_F[-c(2,4,7)]
+pooled_F<-aggregate(. ~ Year+Country+subpop+Region, data=pooled_F, FUN=sum)
+pooled_F$Prevalence<-pooled_F$Prevalent/pooled_F$Population*100
+pooled_F_pois<-pois.approx(pooled_F$Prevalent, pt = pooled_F$Population/100, conf.level = 0.95)
+
+pooled_F$prevCIlower<-pooled_F_pois$lower
+pooled_F$prevCIupper<-pooled_F_pois$upper
+pooled_F_allsub<-pooled_F
+```
+
+## Paediatric males 2015 pooled opioid use prevalence  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+pooled<-subset(pooled_M_allsub,subpop=="paediatric")
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(Prevalence), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,8),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent opioid prescribing per 
+100 population (Paediatric males)"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```  
+
+## Adults males 2015 pooled opioid use prevalence  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+pooled<-subset(pooled_M_allsub,subpop=="adults")
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(Prevalence), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,35),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent opioid prescribing per 
+100 population (Adults males)"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```
+
+## Older adults males 2015 pooled opioid use prevalence  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+pooled<-subset(pooled_M_allsub,subpop=="older adults")
+
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(Prevalence), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,35),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent opioid prescribing per 
+100 population (Older adults males)"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```
+
+## Paediatric females 2015 pooled opioid use prevalence   
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+pooled<-subset(pooled_F_allsub,subpop=="paediatric")
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(Prevalence), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,8),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent opioid prescribing per 
+100 population (Paediatric females)"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```  
+
+## Adults females 2015 pooled opioid use prevalence  
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+pooled<-subset(pooled_F_allsub,subpop=="adults")
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(Prevalence), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,44),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent opioid prescribing per 
+100 population (Adults females)"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```
+
+## Older adults females 2015 pooled opioid use prevalence    
+```{r fig.height=15, fig.width=15, message=FALSE, warning=FALSE}
+pooled<-subset(pooled_F_allsub,subpop=="older adults")
+metagen.IRLN<-meta::metagen(
+  data=pooled,
+  TE=log(Prevalence), 
+  lower = log(prevCIlower), 
+  upper = log(prevCIupper),
+  n.e=pooled$`Prevalent`,
+  n.c=Population, 
+  studlab = pooled$Country, 
+  sm = "IRLN",
+  method.tau = "DL", 
+  fixed = FALSE, 
+  subgroup = pooled$Region)
+
+meta::forest(metagen.IRLN,
+       text.fixed.w = "Population covered", 
+       sep.subgroup=c(": "),
+       leftcols = c("studlab","n.e","n.c"),
+       rightcols = c("effect", "ci", "w.random"),
+       fixed=F,
+       squaresize = 3/1,
+       xlim = c(0,40),
+       colgap.forest.left="15mm",
+       colgap.forest.right="10mm",
+       colgap.right = "5mm",
+       smlab=c("Prevalent opioid prescribing per 
+100 population (Older adults females)"),
+       lab.e=NULL, lab.c=NULL,
+       leftlabs=c("Country","Prevalent 
+Users","Population"),
+       ff.random="bold.italic",
+col.square="cornflowerblue",
+col.i.inside.square="red",
+       col.diamond.random = "darkblue",
+       col.diamond.lines = "black",
+       col.diamond.lines.random = "black",
+       col.by="black",
+       rightlabs = c("(%)","[95% CI] (%)", "Weight"))
+```
+
+# Multivariable linear mixed model  
+
+## Run linear mixed model (multivariable)  
+
+## Model 0: Log prev ~ Year   
+```{r message=FALSE, warning=FALSE}
+library(readxl)
+library(plyr)
+library(lme4)
+library(nlme)
+
+Multivar_model_1 <- lme(fixed = log(prev)~Year, random = ~1+Year|Country, 
+                        data = prev.age, na.action=na.omit)
+
+# anti log coefficients
+mixed_est<-intervals(Multivar_model_1, level = 0.95, which = "fixed")
+mixed_est_2 <- data.frame(mixed_est$fixed)
+mixed_results<-cbind(mixed_est_2)
+mixed_results$expcoef<-(exp(mixed_results$est.)-1)*100
+mixed_results$explower<-(exp(mixed_results$lower)-1)*100
+mixed_results$expupper<-(exp(mixed_results$upper)-1)*100
+
+datatable(mixed_results, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '200px', targets = c(1, 3)))
+))
+# p val
+summary(Multivar_model_1)
+
+```
+## Model 1.1: Log prev ~ Year + Sex +agegroup +region  
+```{r message=FALSE, warning=FALSE}
+library(readxl)
+library(plyr)
+library(lme4)
+library(nlme)
+library(insight)
+Multivar_model_1 <- lme(fixed = log(prev)~Year+Sex+relevel(agegroup,ref="12-18")+
+                          Region, random = ~1|Country, 
+                        data = prev.age, na.action=na.omit)
+
+# p val
+summary(Multivar_model_1)
+get_variance(Multivar_model_1)
+
+# anti log coefficients
+mixed_est<-intervals(Multivar_model_1, level = 0.95, which = "fixed")
+mixed_est_2 <- data.frame(mixed_est$fixed)
+mixed_results<-cbind(mixed_est_2)
+mixed_results$expcoef<-(exp(mixed_results$est.)-1)*100
+mixed_results$explower<-(exp(mixed_results$lower)-1)*100
+mixed_results$expupper<-(exp(mixed_results$upper)-1)*100
+
+datatable(mixed_results, options = list(
+  autoWidth = TRUE,
+  columnDefs = list(list(width = '200px', targets = c(1, 3)))
+))
+
+```
+<!-- ### Model 1.2: no log prev ~ Year + Sex +agegroup +region -->
+<!-- ```{r message=FALSE, warning=FALSE} -->
+<!-- library(readxl) -->
+<!-- library(plyr) -->
+<!-- library(lme4) -->
+<!-- library(nlme) -->
+<!-- library(insight) -->
+<!-- Multivar_model_1 <- lme(fixed = (prev)~Year+Sex+relevel(agegroup,ref="12-18")+ -->
+<!--                           Region, random = ~1+Year|Country, -->
+<!--                         data = prev.age, na.action=na.omit) -->
+
+<!-- # p val -->
+<!-- summary(Multivar_model_1) -->
+<!-- get_variance(Multivar_model_1) -->
+
+<!-- # anti log coefficients to obtain annual average percentage change -->
+<!-- mixed_est<-intervals(Multivar_model_1, level = 0.95, which = "fixed") -->
+<!-- mixed_est_2 <- data.frame(mixed_est$fixed) -->
+<!-- mixed_results<-cbind(mixed_est_2) -->
+<!-- mixed_results$expcoef<-((mixed_results$est.)-1)*100 -->
+<!-- mixed_results$explower<-((mixed_results$lower)-1)*100 -->
+<!-- mixed_results$expupper<-((mixed_results$upper)-1)*100 -->
+
+<!-- datatable(mixed_results, options = list( -->
+<!--   autoWidth = TRUE, -->
+<!--   columnDefs = list(list(width = '200px', targets = c(1, 3))) -->
+<!-- )) -->
+
+<!-- ``` -->
+
+
+
